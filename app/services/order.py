@@ -16,7 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.order import Order, OrderItem
 from app.schemas.cart import CartResponse
+from app.core.logger import get_logger
 
+logger = get_logger(__name__)
 
 class OrderService:
     def __init__(self, session: AsyncSession):
@@ -35,6 +37,11 @@ class OrderService:
 
         if not cart.items:
             raise ValueError("Cannot create order with empty cart")
+        
+        logger.info(
+            f"order_create_attempt user_id={user_id}"
+            )
+
 
         order = Order(
             user_id=user_id,
@@ -57,4 +64,8 @@ class OrderService:
             self.session.add(order_item)
 
         await self.session.commit()
+        logger.info(
+            f"order_created order_id={order.id} total={order.total_amount}" 
+        )
+
         return order

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -9,6 +9,8 @@ from app.db.session import get_db
 from app.db.models.order import Order
 from app.schemas.order import OrderOut, OrderItemOut
 from app.services.checkout import CheckoutService
+from app.services.email import EmailService
+from app.services.background import BackgroundService
 
 router = APIRouter(prefix="/checkout", tags=["Checkout"])
 
@@ -16,24 +18,38 @@ router = APIRouter(prefix="/checkout", tags=["Checkout"])
 @router.post("/{order_id}", response_model=OrderOut)
 async def checkout_order(
     order_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
     service = CheckoutService(db)
 
-    try:  # ✅ TRANSACTION HERE
-            await service.checkout_order(
-                order_id=order_id,
-                user_id=user.id,
+    try:
+        await service.checkout_order(
+            order_id=order_id,
+            user_id=user.id,
+        )
+        await db.commit()
+
+        # Background email task
+        async def email_task():
+            await EmailService.send_order_confirmation(
+                user.email,
+                str(order_id)
             )
-            await db.commit()
+
+        background_tasks.add_task(
+            BackgroundService.retry_task,
+            email_task
+        )
+
     except PermissionError:
         await db.rollback()
         raise HTTPException(status_code=403, detail="Access denied")
+
     except ValueError as e:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
-
 
     result = await db.execute(
         select(Order)
@@ -66,12 +82,18 @@ async def cancel_order(
     user=Depends(get_current_user),
 ):
     service = CheckoutService(db)
+
     try:
-        await service.cancel_order(order_id=order_id, user_id=user.id)
+        await service.cancel_order(
+            order_id=order_id,
+            user_id=user.id
+        )
         await db.commit()
+
     except PermissionError:
         await db.rollback()
         raise HTTPException(status_code=403, detail="Access denied")
+
     except ValueError as e:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))

@@ -25,8 +25,9 @@ from sqlalchemy import select
 from app.db.models.order import Order
 from app.db.models.payment import Payment
 from app.schemas import order, payment
+from app.core.logger import get_logger
 
-
+logger = get_logger(__name__)
 class PaymentService:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -44,6 +45,11 @@ class PaymentService:
             select(Order).where(Order.id == order_id)
         )
         order = result.scalar_one_or_none()
+        
+        logger.info(
+        f"payment_authorize_attempt order_id={order_id} amount={amount}"
+            )
+
 
         if not order:
             raise ValueError("Order not found")
@@ -86,6 +92,10 @@ class PaymentService:
         )
 
         self.session.add(payment)
+        
+        logger.info(
+            f"payment_authorized payment_id={payment.id} order_id={order_id}"
+        )
         return payment
 
     async def capture_payment(
@@ -98,6 +108,11 @@ class PaymentService:
             select(Payment).where(Payment.id == payment_id)
         )
         payment = result.scalar_one_or_none()
+        
+        logger.info(
+        f"payment_capture_attempt payment_id={payment_id}"
+            )
+
 
         if not payment:
             raise ValueError("Payment not found")

@@ -18,6 +18,10 @@ from sqlalchemy.orm import selectinload
 from app.db.models.order import Order
 from app.db.models.product import Product
 from app.services import order
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 
 class CheckoutService:
@@ -31,6 +35,9 @@ class CheckoutService:
             .options(selectinload(Order.items))
         )
         order = result.scalar_one_or_none()
+        logger.info(
+            f"checkout_start order_id={order_id}"
+        )
 
         if not order:
             raise ValueError("Order not found")
@@ -53,15 +60,24 @@ class CheckoutService:
 
         for item in order.items:
             product = product_map.get(item.product_id)
+            
+            logger.info(
+                f"inventory_lock product_id={item.product_id} requested_quantity={item.quantity}"
+            )
+            
             if not product or not product.is_active:
                 raise ValueError("Product unavailable during checkout")
             if product.stock < item.quantity:
                 raise ValueError(f"Insufficient stock for product '{product.name}'")
-
+            
         for item in order.items:
             product_map[item.product_id].stock -= item.quantity
 
         order.status = "paid"
+        
+        logger.info(
+            f"checkout_success order_id={order.id} total={order.total_amount}"
+            )
 
         return order
 
